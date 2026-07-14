@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -37,5 +38,43 @@ func TestDoRespectsWorkDuration(t *testing.T) {
 	}
 	if elapsed < 20*time.Millisecond {
 		t.Errorf("Do returned too fast: %v", elapsed)
+	}
+}
+
+func TestDoCtxSucceedsWhenNotCancelled(t *testing.T) {
+	got, err := DoCtx(context.Background(), Job{ID: 3, Work: 5 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.JobID != 3 || got.Value != "ok-3" {
+		t.Errorf("unexpected result: %+v", got)
+	}
+}
+
+func TestDoCtxReturnsCancelErrorWhenPreempted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := DoCtx(ctx, Job{ID: 4, Work: 500 * time.Millisecond})
+	elapsed := time.Since(start)
+
+	if err != context.Canceled {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	if elapsed >= 100*time.Millisecond {
+		t.Errorf("DoCtx did not preempt on cancel: %v", elapsed)
+	}
+}
+
+func TestDoCtxSkipsWorkWhenAlreadyCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := DoCtx(ctx, Job{ID: 5, Work: 500 * time.Millisecond})
+	if err != context.Canceled {
+		t.Fatalf("want context.Canceled, got %v", err)
 	}
 }
